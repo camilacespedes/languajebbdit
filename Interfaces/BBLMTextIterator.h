@@ -4,24 +4,28 @@
 #include <stddef.h>
 #include <ctype.h>
 #include <string.h>
+#include <iterator>
 
 #include "BBLMInterface.h"
 
-class BBLMTextIterator
+class BBLMTextIterator : std::iterator<std::random_access_iterator_tag, UniChar>
 {
 	private:
 		
-		UniChar*	fTextPtr;
-		size_t		fTextLen;
-		UniChar*	fGapLoc;
-		size_t		fGapLen;
-		UniChar*	fTextStart;
-		UniChar*	fTextEnd;
+		const UniChar *         fTextPtr;
+		const size_t            fTextLen;
+		const UniChar * const 	fGapLoc;
+		const size_t            fGapLen;
+		const UniChar * const   fTextStart;
+		const UniChar * const   fTextEnd;
 		
-		UniChar* AddOffset(const int32_t offset)
+		const UniChar* AddOffset(const ssize_t offset) const
 			{
-				bool		wasPreGap	= (fTextPtr < fGapLoc);
-				UniChar*	result		= fTextPtr + offset;
+				if (0 == fGapLen)	//	fast path
+					return fTextPtr + offset;
+					
+				const bool		wasPreGap	= (fTextPtr < fGapLoc);
+				const UniChar*	result		= fTextPtr + offset;
 				
 				if (offset < 0)
 				{
@@ -37,61 +41,48 @@ class BBLMTextIterator
 				return result;
 			}
 		
+		BBLMTextIterator();
+		
 	public:
 		
 		BBLMTextIterator(const BBLMParamBlock& params)
+            :
+                fTextLen(params.fTextLength),
+                fGapLoc(params.fText + params.fTextGapLocation),
+                fGapLen(params.fTextGapLength),
+                fTextStart(params.fText
+                        + (params.fTextGapLocation == 0 ? fGapLen : 0)),
+                fTextEnd(params.fText + fTextLen
+                        + (params.fTextGapLocation <= fTextLen ? fGapLen : 0))
 			{
-				fTextPtr		= params.fText;
-				fTextLen		= params.fTextLength;
-				fGapLoc			= fTextPtr + params.fTextGapLocation;
-				fGapLen			= params.fTextGapLength;
-				fTextStart		= fTextPtr;
-				fTextEnd		= fTextStart + fTextLen;
-			
-				if (fTextStart >= fGapLoc)
-					fTextStart += fGapLen;
-			
-				if (fTextEnd >= fGapLoc)
-					fTextEnd += fGapLen;
-				
-				fTextPtr = fTextStart;
+				fTextPtr = (UniChar*)fTextStart;
 			}
 
-		BBLMTextIterator(const BBLMParamBlock& params, const int32_t offset)
+		BBLMTextIterator(const BBLMParamBlock& params, const ssize_t offset)
+            :
+                fTextLen(params.fTextLength),
+                fGapLoc(params.fText + params.fTextGapLocation),
+                fGapLen(params.fTextGapLength),
+                fTextStart(params.fText
+                           + (params.fTextGapLocation == 0 ? fGapLen : 0)),
+                fTextEnd(params.fText + fTextLen
+                         + (params.fTextGapLocation <= fTextLen ? fGapLen : 0))
 			{
-				fTextPtr		= params.fText;
-				fTextLen		= params.fTextLength;
-				fGapLoc			= fTextPtr + params.fTextGapLocation;
-				fGapLen			= params.fTextGapLength;
-				fTextStart		= fTextPtr;
-				fTextEnd		= fTextStart + fTextLen;
-			
-				if (fTextStart >= fGapLoc)
-					fTextStart += fGapLen;
-			
-				if (fTextEnd >= fGapLoc)
-					fTextEnd += fGapLen;
-				
-				fTextPtr = fTextStart;
+                fTextPtr = (UniChar*)fTextStart;
 				fTextPtr = AddOffset(offset);
 			}
 		
-		BBLMTextIterator(const BBLMParamBlock& params, const int32_t offset, const int32_t textLength)
+		BBLMTextIterator(const BBLMParamBlock& params, const ssize_t offset, const ssize_t textLength)
+            :
+                fTextLen(textLength),
+                fGapLoc(params.fText + params.fTextGapLocation),
+                fGapLen(params.fTextGapLength),
+                fTextStart(params.fText
+                           + (params.fTextGapLocation == 0 ? fGapLen : 0)),
+                fTextEnd(params.fText + textLength + offset
+                         + ((textLength + offset) >= params.fTextGapLocation ? fGapLen : 0))
 			{
-				fTextPtr		= params.fText;
-				fTextLen		= textLength;
-				fGapLoc			= fTextPtr + params.fTextGapLocation;
-				fGapLen			= params.fTextGapLength;
-				fTextStart		= fTextPtr;
-				fTextEnd		= fTextStart + (fTextLen + offset);
-			
-				if (fTextStart >= fGapLoc)
-					fTextStart += fGapLen;
-			
-				if (fTextEnd >= fGapLoc)
-					fTextEnd += fGapLen;
-				
-				fTextPtr = fTextStart;
+                fTextPtr = (UniChar*)fTextStart;
 				fTextPtr = AddOffset(offset);
 			}
 		
@@ -101,14 +92,14 @@ class BBLMTextIterator
 			  fTextStart(iter.fTextStart), fTextEnd   (iter.fTextEnd)
 			{ /*...*/ }
 		
-		BBLMTextIterator(const BBLMTextIterator& iter, const int32_t offset)
+		BBLMTextIterator(const BBLMTextIterator& iter, const ssize_t offset)
 			: fTextPtr  (iter.fTextPtr),   fTextLen(iter.fTextLen),
 			  fGapLoc   (iter.fGapLoc),    fGapLen    (iter.fGapLen),
 			  fTextStart(iter.fTextStart), fTextEnd   (iter.fTextEnd)
 			{ fTextPtr = AddOffset(offset); }
 
-		
-		UniChar operator*()
+		inline
+		UniChar operator*() const
 			{
 				if ((fTextPtr >= fTextEnd) || (fTextPtr < fTextStart))
 					return 0;
@@ -116,34 +107,10 @@ class BBLMTextIterator
 				return(*fTextPtr);
 			}
 
-#if __LP64__
 		inline
-		UniChar operator[](const CFIndex index)
+		UniChar operator[](const ssize_t index) const
 			{
-				UniChar*	result = AddOffset(static_cast<int32_t>(index));
-				
-				if ((result >= fTextEnd) || (result < fTextStart))
-					return 0;
-				
-				return(*result);
-			}
-
-		inline
-		UniChar operator[](const UInt32 index)
-			{
-				UniChar*	result = AddOffset(index);
-				
-				if ((result >= fTextEnd) || (result < fTextStart))
-					return 0;
-				
-				return(*result);
-			}
-#endif
-
-		inline
-		UniChar operator[](const int32_t index)
-			{
-				UniChar*	result = AddOffset(index);
+				const UniChar*	result = AddOffset(index);
 				
 				if ((result >= fTextEnd) || (result < fTextStart))
 					return 0;
@@ -151,53 +118,123 @@ class BBLMTextIterator
 				return(*result);
 			}
 		
-		void operator ++(int)
+		BBLMTextIterator& operator++(void)
 			{
 				fTextPtr++;
 				if (fTextPtr == fGapLoc)
 					fTextPtr += fGapLen;
+				return *this;
+			}
+
+		BBLMTextIterator operator++(int)
+			{
+			    BBLMTextIterator old(*this);
+			    operator++();
+				return old;
 			}
 		
-		BBLMTextIterator& operator +=(const int32_t delta)
+		inline
+		BBLMTextIterator& operator +=(const ptrdiff_t delta)
 			{ fTextPtr = AddOffset(delta); return *this; }
 		
-		BBLMTextIterator operator +(const int32_t delta)
+		inline
+		BBLMTextIterator operator +(const ptrdiff_t delta)
 			{ return BBLMTextIterator(*this, delta); }
 		
-		void operator --(int)
+		inline
+		BBLMTextIterator& operator--(void)
 			{
 				if (fTextPtr == (fGapLoc + fGapLen))
 					fTextPtr -= fGapLen;
 					
 				fTextPtr--;
+				return *this;
+			}
+
+		BBLMTextIterator operator--(int)
+			{
+			    BBLMTextIterator old(*this);
+			    operator--();
+				return old;
 			}
 		
-		BBLMTextIterator& operator -=(const int32_t delta)
+		inline
+		BBLMTextIterator& operator -=(const ptrdiff_t delta)
 			{ fTextPtr = AddOffset(-delta); return *this; }
 		
-		BBLMTextIterator operator -(const int32_t delta)
+		inline
+		BBLMTextIterator operator -(const ptrdiff_t delta)
 			{ return BBLMTextIterator(*this, -delta); }
 		
+		inline
+		bool operator ==(const BBLMTextIterator& alter)
+			{ return fTextPtr == alter.fTextPtr; }
+
+		inline
+		bool operator !=(const BBLMTextIterator& alter)
+			{ return fTextPtr != alter.fTextPtr; }
+
+		inline
+		bool operator >(const BBLMTextIterator& alter)
+			{ return fTextPtr > alter.fTextPtr; }
+
+		inline
+		bool operator >=(const BBLMTextIterator& alter)
+			{ return fTextPtr >= alter.fTextPtr; }
+
+		inline
+		bool operator <(const BBLMTextIterator& alter)
+			{ return fTextPtr > alter.fTextPtr; }
+
+		inline
+		bool operator <=(const BBLMTextIterator& alter)
+			{ return fTextPtr >= alter.fTextPtr; }
+
+		inline
+		BBLMTextIterator& operator =(const BBLMTextIterator & alter)
+			{ fTextPtr = alter.fTextPtr; return *this; }
+
+        // Special operator to allow iter = 0 expressions.
+        inline
+		BBLMTextIterator& operator =(const ptrdiff_t newPos)
+			{ SetOffset(newPos); return *this; }
+
+		inline
 		const UniChar* Address(void) const
 			{ return fTextPtr; }
 		
+		inline
 		int32_t Offset(void) const
 			{
-				int32_t result = static_cast<int32_t>(fTextPtr - fTextStart);
+				ptrdiff_t result = (fTextPtr - fTextStart);
 				
 				if (fTextPtr >= fGapLoc && fTextStart < fGapLoc)
 					result -= fGapLen;
 				
-				return result;
+				//	really we should declare and return ssize_t, but that'll
+				//	upset a lot of client code...
+				return static_cast<int32_t>(result);
 			}
 		
-		void SetOffset(const int32_t newPos)
+		inline
+		void SetOffset(const ssize_t newPos)
 			{
-				int32_t delta = (0 - Offset()) + newPos;
+				ssize_t delta = (0 - Offset()) + newPos;
 				
 				fTextPtr = AddOffset(delta);
 			}
 		
+		void MoveToBegin(void)
+		    {
+		        fTextPtr = (UniChar*)fTextStart;
+		    }
+
+		void MoveToEnd(void)
+		    {
+		        fTextPtr = (UniChar*)fTextEnd;
+		    }
+
+		inline
 		size_t CharsLeft(void) const
 			{
 				//
@@ -206,8 +243,8 @@ class BBLMTextIterator
 				//	of the iterator (fTextEnd and fTextStart) and account for the gap
 				//	when we do the math.
 				//
-				int32_t	len = static_cast<int32_t>(fTextEnd - fTextStart);
-				int32_t result = 0;
+				ptrdiff_t	len = (fTextEnd - fTextStart);
+				ssize_t		result = 0;
 				
 				if ((fTextEnd >= fGapLoc) && (fTextStart < fGapLoc))
 					len -= fGapLen;
@@ -219,9 +256,11 @@ class BBLMTextIterator
 				return result;
 			}
 		
-		bool InBounds()
+		inline
+		bool InBounds() const
 			{ return (fTextPtr >= fTextStart && fTextPtr < fTextEnd); }
 		
+		inline
 		UniChar GetNextChar()
 			{
 				if (fTextPtr >= fTextEnd)
@@ -229,14 +268,15 @@ class BBLMTextIterator
 				
 				UniChar result = **this;
 				
-				(*this)++;
+				++(*this);
 				
 				return result;
 			}
 		
+		inline
 		UniChar GetPrevChar()
 			{
-				(*this)--;
+				--(*this);
 				
 				if (fTextPtr <= fTextStart)
 					return '\r';
@@ -245,6 +285,7 @@ class BBLMTextIterator
 			}
 		
 		template <class CharXX>
+		inline
 		size_t strlen(const CharXX *str)
 			{
 				size_t len = 0;
@@ -257,7 +298,6 @@ class BBLMTextIterator
 				return(len);
 			}
 
-
 		// DRSWAT: function for sanitizing comparison results down to an int that is precisely -1, 0, or 1.
 		// Necessary for 64-bit to deal with precision loss compiler errors.
 		template <class _signedIntT>
@@ -267,11 +307,20 @@ class BBLMTextIterator
 		}
 
 		template <class CharXX>
-		int strcmp(const CharXX *str, size_t n)
+		inline int strcmp(const CharXX *str, size_t n)
 			{
 				BBLMTextIterator	p = *this;
 				unsigned long			c1, c2;
 				
+				//
+				//	edge case here: if we're at the end, but there are
+				//	characters left in the string, then we are done.
+				//	Otherwise we'll return a false match.
+				//
+				
+				if ((0 == *p) && (0 != n))
+					return -1;
+					
 				str--;
 				n++;
 				
@@ -281,27 +330,33 @@ class BBLMTextIterator
 					c2 = *++str;
 					
 					if (c1 != c2)
-					{
-						long delta = c1 - c2;
-						return MakeComparisonResult(delta);
-					}
+						return MakeComparisonResult(c1 - c2);
 				}
 				
 				return(0);
 			}
 
 		template <class CharXX>
-		int strcmp(const CharXX *str)
+		inline int strcmp(const CharXX *str)
 			{
 				return strcmp(str, strlen(str));
 			}
 		
 		template <class CharXX>
-		int stricmp(const CharXX *str, size_t n)
+		inline int stricmp(const CharXX *str, size_t n)
 			{
 				BBLMTextIterator	p = *this;
 				unsigned long			c1, c2;
 				
+				//
+				//	edge case here: if we're at the end, but there are
+				//	characters left in the string, then we are done.
+				//	Otherwise we'll return a false match.
+				//
+				
+				if ((0 == *p) && (0 != n))
+					return -1;
+					
 				str--;
 				n++;
 				
@@ -317,17 +372,14 @@ class BBLMTextIterator
 						c2 = tolower(static_cast<int>(c2));
 					
 					if (c1 != c2)
-					{
-						long delta = c1 - c2;
-						return MakeComparisonResult(delta);
-					}
+						return MakeComparisonResult(c1 - c2);
 				}
 				
 				return(0);
 			}
 		
 		template <class CharXX>
-		int stricmp(const CharXX *str)
+		inline int stricmp(const CharXX *str)
 			{
 				return stricmp(str, strlen(str));
 			}
