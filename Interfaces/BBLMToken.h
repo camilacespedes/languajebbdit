@@ -1,5 +1,3 @@
-#pragma once
-
 /*
  *  BBLMToken.h
  *  Generic token class for language parsing in BBEdit Language Modules
@@ -63,6 +61,7 @@ public:
 		 m_length( originalTok.length() )
 	{}
 	
+	virtual
 	~BBLMToken() { }
 	
 #pragma mark -

@@ -27,6 +27,53 @@
 
 #include "BBLMTextUtils.h"
 
+BBLMTextUtils::BBLMTextUtils(			BBLMParamBlock &	params,
+				const	BBLMCallbackBlock &	/* bblm_callbacks */,
+						BBLMTextIterator &	p )
+	:m_params( params ),
+	 m_p( p ),
+	 m_inlineWhiteCharSet( CFCharacterSetCreateMutable( kCFAllocatorDefault ) ),
+	 m_breakCharSet( CFCharacterSetCreateMutable( kCFAllocatorDefault ) ),
+	 m_EOLCharSet( CFCharacterSetCreateMutable( kCFAllocatorDefault ) ),
+	 m_wordCharSet( [NSMutableCharacterSet new] ),
+	 m_identifierCharSet ( [NSMutableCharacterSet new] ),
+	 m_digitSeparatorCharSet( [NSMutableCharacterSet new] )
+{
+	this->initEOLChars();
+	this->initWhitespace();
+	this->initWordChars();
+	this->initIdentifierChars();
+	this->initDigitSeparatorChars();
+}
+
+BBLMTextUtils::~BBLMTextUtils()
+{
+	if ( NULL != m_inlineWhiteCharSet )
+	{
+		CFRelease( m_inlineWhiteCharSet );
+		
+		m_inlineWhiteCharSet = NULL;
+	}
+	
+	if ( NULL != m_breakCharSet )
+	{
+		CFRelease( m_breakCharSet );
+		
+		m_breakCharSet = NULL;
+	}
+	
+	if ( NULL != m_EOLCharSet )
+	{
+		CFRelease( m_EOLCharSet );
+		
+		m_EOLCharSet = NULL;
+	}
+	
+	[m_wordCharSet release];
+	[m_identifierCharSet release];
+	[m_digitSeparatorCharSet release];
+}
+
 #pragma mark Character Tests and Init
 #pragma mark -
 
@@ -38,25 +85,7 @@ BBLMTextUtils::addCharsToSet( CFStringRef chars, CFMutableCharacterSetRef charSe
 
 void
 BBLMTextUtils::addCharToSet( UniChar c, CFMutableCharacterSetRef charSet ) {
-	CFStringRef		s = CFStringCreateWithCharacters( kCFAllocatorDefault, &c, 1 );
-	
-	this->addCharsToSet( s, charSet );
-	
-	CFRelease( s );
-}
-
-void
-BBLMTextUtils::removeCharsFromSet( CFStringRef chars, CFMutableCharacterSetRef charSet ) {
-	CFCharacterSetRemoveCharactersInString( charSet, chars );
-}
-
-void
-BBLMTextUtils::removeCharFromSet( UniChar c, CFMutableCharacterSetRef charSet ) {
-	CFStringRef		s = CFStringCreateWithCharacters( kCFAllocatorDefault, &c, 1 );
-	
-	this->removeCharsFromSet( s, charSet );
-	
-	CFRelease( s );
+	CFCharacterSetAddCharactersInRange(charSet, CFRangeMake(c, 1));
 }
 
 #pragma mark -
@@ -71,22 +100,39 @@ void BBLMTextUtils::addBreakChars( CFStringRef s ) {
 	this->addCharsToSet( s, m_breakCharSet );
 }
 
-void
-BBLMTextUtils::clearBreakChar( UniChar c ) {
-	this->removeCharFromSet( c, m_breakCharSet );
-}
+#pragma mark -
 
 void
-BBLMTextUtils::clearBreakChars( CFStringRef s ) {
-	this->removeCharsFromSet( s, m_breakCharSet );
+BBLMTextUtils::initCharacterSets() {
+	//
+	//	The default implementation does nothing. We should probably fill this in with
+	//	something useful default behavior that covers most subclasses, and let overrides
+	//	modify it.
+	/*...*/
+	
+	
+}
+
+bool
+BBLMTextUtils::isWordChar ( const UniChar c) {
+	return [m_wordCharSet characterIsMember: c];
+}
+
+bool
+BBLMTextUtils::isIdentifierChar ( const UniChar c) {
+	return [m_identifierCharSet characterIsMember: c];
+}
+
+bool
+BBLMTextUtils::isDigitSeparatorChar( const UniChar c )
+{
+	return [m_digitSeparatorCharSet characterIsMember: c];
 }
 
 bool
 BBLMTextUtils::isBreakChar( UniChar c ) {
 	return CFCharacterSetIsCharacterMember( m_breakCharSet, c );
 }
-
-#pragma mark -
 
 bool
 BBLMTextUtils::isInlineWhiteChar( UniChar c ) {
@@ -103,6 +149,30 @@ BBLMTextUtils::initEOLChars() {
 void
 BBLMTextUtils::initWhitespace() {
 	this->addCharsToSet(CFSTR( " \t\f\v" ), m_inlineWhiteCharSet);
+}
+
+void
+BBLMTextUtils::initWordChars() {
+	[m_wordCharSet formUnionWithCharacterSet: [NSCharacterSet alphanumericCharacterSet]];
+	[m_wordCharSet addCharactersInRange: NSMakeRange('_', 1)];
+}
+
+void
+BBLMTextUtils::initIdentifierChars()
+{
+	[m_identifierCharSet formUnionWithCharacterSet: [NSCharacterSet alphanumericCharacterSet]];
+	[m_identifierCharSet addCharactersInRange: NSMakeRange('_', 1)];
+}
+
+void
+BBLMTextUtils::initDigitSeparatorChars()
+{
+	NSString	*digitSeparators = nil;
+	
+	if (nil != (digitSeparators = m_params.fLanguageModuleProperties[@"BBLMDigitSeparator"]))
+	{
+		[m_digitSeparatorCharSet addCharactersInString: digitSeparators];
+	}
 }
 
 #pragma mark -
@@ -535,8 +605,7 @@ BBLMTextUtils::skipHex( BBLMTUNumberType & numberType ) {
 	{
 		m_p += 2;
 		
-		for ( UniChar c = *m_p; isHexChar( c ); m_p++, c = *m_p )
-		{ ; }
+		_skipHexDigitRun();
 		
 		if ( m_p.Offset() == startIx + 2 )  // no hex chars were found after the 0x
 			m_p -= 2;
@@ -555,8 +624,7 @@ BBLMTextUtils::skipBinary( BBLMTUNumberType & numberType ) {
 	{
 		m_p += 2;
 		
-		for ( UniChar c = *m_p; ( '0' == c ) || ( '1' == c ); m_p++, c = *m_p )
-		{ ; }
+		_skipBinaryDigitRun();
 		
 		if ( m_p.Offset() == startIx + 2 ) // no binary chars were found after the 0b
 			m_p -= 2;
@@ -568,9 +636,8 @@ BBLMTextUtils::skipBinary( BBLMTUNumberType & numberType ) {
 bool
 BBLMTextUtils::skipFloat( BBLMTUNumberType & numberType ) {
 	numberType = kBBLMTULong;
-	
-	while ( isdigit( *m_p ) )
-		m_p++;
+
+	this->_skipDigitRun();
 	
 	if ( '.' == *m_p )
 	{
@@ -579,8 +646,7 @@ BBLMTextUtils::skipFloat( BBLMTUNumberType & numberType ) {
 		numberType = kBBLMTUFloat;
 	}
 	
-	while ( isdigit( *m_p ) )
-		m_p++;
+	this->_skipDigitRun();
 	
 	if ( ( 'e' == *m_p ) || ( 'E' == *m_p ) )
 	{
@@ -602,14 +668,16 @@ BBLMTextUtils::skipFloat( BBLMTUNumberType & numberType ) {
 		numberType = kBBLMTUScientific;
 	}
 	
-	while ( isdigit( *m_p ) )
-		m_p++;
-	
+	this->_skipDigitRun();
+
 	return ( 0 != *m_p );
 }
 
 bool
 BBLMTextUtils::skipNumber( BBLMTUNumberType & numberType ) {
+	if ( '-' == *m_p )
+		m_p++;
+		
 	if ( '0' == *m_p )
 	{
 		if ( ( 'x' == m_p[1] ) || ( 'X' == m_p[1] ) )
@@ -637,36 +705,201 @@ BBLMTextUtils::skipNumber( BBLMTUNumberType & numberType ) {
 	return m_p.InBounds();
 }
 
+void
+BBLMTextUtils::_skipDigitRun(void)
+{
+	UniChar	prevChar = 0;
+	
+	while ( isdigit( *m_p ) )
+	{
+		prevChar = (*m_p);
+		m_p++;
+		
+		if (isDigitSeparatorChar(*m_p))
+		{
+			if (! isdigit(m_p[1]))
+				break;
+				
+			if (! isDigitSeparatorChar(prevChar))
+				m_p++;
+		}
+	}
+}
+
+void
+BBLMTextUtils::_skipHexDigitRun(void)
+{
+	UniChar	prevChar = 0;
+	
+	while ( isHexChar( *m_p ) )
+	{
+		prevChar = (*m_p);
+		m_p++;
+		
+		if (isDigitSeparatorChar(*m_p))
+		{
+			if (! isHexChar(m_p[1]))
+				break;
+				
+			if (! isDigitSeparatorChar(prevChar))
+				m_p++;
+		}
+	}
+}
+
+void
+BBLMTextUtils::_skipBinaryDigitRun(void)
+{
+	static dispatch_once_t	_inited;
+	static NSCharacterSet	*_bits;
+	
+	dispatch_once(&_inited,
+		^()
+		{
+			_bits = [[NSCharacterSet characterSetWithRange: NSMakeRange('0', 2)] retain];
+		}
+	);
+	
+	UniChar	prevChar = 0;
+	
+	while ( [_bits characterIsMember: *m_p] )
+	{
+		prevChar = (*m_p);
+		m_p++;
+		
+		if (isDigitSeparatorChar(*m_p))
+		{
+			if (! [_bits characterIsMember: *m_p])
+				break;
+				
+			if (! isDigitSeparatorChar(prevChar))
+				m_p++;
+		}
+	}
+}
+
+bool
+BBLMTextUtils::skipWord() {
+	while ( m_p.InBounds() )
+	{
+		//	REVIEW this is naive, and we should probably use isWordChar() instead,
+		//	but this will require careful regression testing.
+		if ( ! isWordChar( *m_p ) )
+			break;
+		
+		m_p++;
+	}
+	
+	return m_p.InBounds();
+}
+
+bool
+BBLMTextUtils::skipWordByIndex( SInt32 & index ) {
+	return this->skipWordByIndex( m_p, index );
+}
+
+bool
+BBLMTextUtils::skipWordByIndex( BBLMTextIterator & p, SInt32 & index ) {
+	SInt32		ix = index,
+				start = p.Offset(),
+				limit = m_params.fTextLength;
+	
+	while ( start + ix < limit )
+	{
+		if ( isalnum( p[ ix ] ) || ( p[ ix ] == '_' ) )
+			ix++;
+		else
+			break;
+	}
+	
+	index = ix;
+	
+	return ( start + ix < limit );
+}
 
 #pragma mark -
 #pragma mark Tests
 
 bool
-BBLMTextUtils::matchChars( const char * pat ) {
-	SInt32				i,
+BBLMTextUtils::matchWord( const char * pat ) {
+	SInt32				i = 0,
 						pos = m_p.Offset();
 	
-	for ( i = 0; *pat; ++i, pat++ )
-	{
-		if ( pos + i >= (SInt32) m_params.fTextLength )
-			return false;
-		
-		if (BBLMCharacterIsLineBreak(m_p[i]) && BBLMCharacterIsLineBreak(*pat))
-			continue;
-			
-		if ( m_p[ i ] != *pat )
-			return false;
-	}
+	if ( ! this->matchChars( m_p, pat, i ) )
+		return false;
+	
+	if ( ( pos + i < (SInt32) m_params.fTextLength ) && isWordChar( m_p[ i ] ) )
+		return false;
 	
 	return true;
 }
 
 bool
-BBLMTextUtils::imatchChars( const char * pat ) {
-	SInt32			i = 0,
-					pos = m_p.Offset();
+BBLMTextUtils::imatchWord( const char * pat ) {
+	SInt32				i,
+						pos = m_p.Offset(),
+						max = (SInt32) m_params.fTextLength;
 	
-	for ( i = 0; *pat; ++i, pat++ )
+	for ( i = 0; pat[ i ]; ++i )
+	{
+		if ( pos + i >= max )
+			return false;
+		
+		if ( LowerChar( m_p[ i ] ) != LowerChar( pat[ i ] ) )
+			return false;
+	}
+	
+	if ( ( pos + i < max ) && isWordChar( m_p[ i ] ) )
+		return false;
+	
+	return true;
+}
+
+bool
+BBLMTextUtils::matchChars( BBLMTextIterator & txt, const char * pat, SInt32 & ct ) {
+	SInt32				i,
+						pos = txt.Offset(),
+						limit = m_params.fTextLength;
+	
+	for ( i = 0; pat[ i ]; ++i )
+	{
+		if ( pos + ct + i >= limit )
+			return false;
+		
+		if (BBLMCharacterIsLineBreak(pat[i]))
+		{
+			//
+			//	if there's a line break in the pattern, check the line-break-ness
+			//	of the character, rather than doing a literal compare.
+			//
+			if (BBLMCharacterIsLineBreak(txt[ct + i]))
+				continue;
+			
+			return false;
+		}
+		
+		if ( txt[ ct + i ] != pat[ i ] )
+			return false;
+	}
+	
+	ct += i;
+	
+	return true;
+}
+
+bool
+BBLMTextUtils::matchChars( const char * pat ) {
+	SInt32				ct = 0;
+	
+	return this->matchChars( m_p, pat, ct );
+}
+
+bool
+BBLMTextUtils::imatchCharsByIndex( const char * pat, SInt32 index ) {
+	SInt32		i,
+				pos = m_p.Offset();
+	
+	for ( i = index; *pat; ++i, pat++ )
 	{
 		if ( pos + i >= (SInt32) m_params.fTextLength )
 			return false;
@@ -679,6 +912,13 @@ BBLMTextUtils::imatchChars( const char * pat ) {
 	}
 	
 	return true;
+}
+
+bool
+BBLMTextUtils::imatchChars( const char * pat ) {
+	SInt32			i = 0;
+	
+	return this->imatchCharsByIndex(pat, i);
 }
 
 
@@ -748,6 +988,48 @@ BBLMTextUtils::skipDelimitedStringByIndex( SInt32 & index, bool flAllowEOL,
 	
 	return index < limit;
 }
+
+bool
+BBLMTextUtils::skipDelimitedStringByIndex( SInt32 & index ) {
+	SInt32		ix = index + 1,
+				limit = m_params.fTextLength - m_p.Offset();
+	UniChar		c,
+				delim;
+	
+	if ( ix < limit )
+	{
+		delim = m_p[ index ];
+	}
+	else
+	{
+		return false;
+	}
+	
+	while ( ix < limit )
+	{
+		c = m_p[ ix ];
+		
+		if ( delim == c )
+		{
+			break;
+		}
+		else if ( '\\' == c )
+		{
+			++ix;
+		}
+		else if ( BBLMCharacterIsLineBreak(c) )
+		{
+			break;
+		}
+		
+		++ix;
+	}
+	
+	index = ix;
+	
+	return ix < limit;
+}
+
 
 UInt32
 BBLMTextUtils::countLinesInRange( UInt32 rangeStart, UInt32 rangeStop, UInt32 maxLinesToFind )

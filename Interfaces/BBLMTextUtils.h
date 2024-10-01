@@ -45,57 +45,21 @@ class BBLMTextUtils
 #pragma mark public
 public:
 	BBLMTextUtils(			BBLMParamBlock &	params,
-					const	BBLMCallbackBlock &	bblm_callbacks,
-							BBLMTextIterator &	p )
-		:m_params( params ),
-		 m_bblm_callbacks( bblm_callbacks ),
-		 m_p( p ),
-		 m_inlineWhiteCharSet( NULL ),
-		 m_breakCharSet( NULL ),
-		 m_EOLCharSet( NULL )
-	{
-		m_inlineWhiteCharSet = CFCharacterSetCreateMutable( kCFAllocatorDefault );
-		
-		m_breakCharSet = CFCharacterSetCreateMutable( kCFAllocatorDefault );
-		
-		m_EOLCharSet = CFCharacterSetCreateMutable( kCFAllocatorDefault );
-		
-		this->initEOLChars();
-		this->initWhitespace();
-	}
+					const	BBLMCallbackBlock &	/* bblm_callbacks */,
+							BBLMTextIterator &	p );
 	
-	virtual ~BBLMTextUtils()
-	{
-		if ( NULL != m_inlineWhiteCharSet )
-		{
-			CFRelease( m_inlineWhiteCharSet );
-			
-			m_inlineWhiteCharSet = NULL;
-		}
-		
-		if ( NULL != m_breakCharSet )
-		{
-			CFRelease( m_breakCharSet );
-			
-			m_breakCharSet = NULL;
-		}
-		
-		if ( NULL != m_EOLCharSet )
-		{
-			CFRelease( m_EOLCharSet );
-			
-			m_EOLCharSet = NULL;
-		}
-	}
+	virtual ~BBLMTextUtils();
 	
 	
 			bool			isBreakChar( UniChar );
-	
 			bool			isInlineWhiteChar( UniChar );
-			
 			bool			isEOLChar( UniChar );
+			bool			isWordChar( const UniChar );
+			bool			isIdentifierChar( const UniChar );
+			bool			isDigitSeparatorChar (const UniChar );
 			
-	inline	UniChar			LowerChar( UniChar c ) {
+	static
+	inline	UniChar			LowerChar( const UniChar c ) {
 								return ( ( c >= 'A' ) && ( c <= 'Z' ) ) ? c + ( 'a' - 'A' ) : c;
 							}
 
@@ -105,7 +69,6 @@ public:
 	#pragma mark Skippers
 	
 			bool			skipWhitespace();
-			
 			
 			bool			skipInlineWhitespace();
 			
@@ -156,18 +119,12 @@ public:
 			
 			SInt32			findLineEndAfterIndex( SInt32 );
 			
-	virtual	bool			skipWord() = 0;
+							//	this can be overridden, sadly
+	virtual	bool			skipWord();
 			
-	virtual	bool			skipWordByIndex( SInt32 & ) = 0;
-	
-			bool			matchChars( const char * );
-			
-			bool			imatchChars( const char * );
-			
-	virtual	bool			matchWord( const char * pat ) = 0;
-	
-	virtual	bool			imatchWord( const char * pat ) = 0;
-			
+			bool			skipWordByIndex( SInt32 & );
+			bool			skipWordByIndex( BBLMTextIterator &, SInt32 & );
+				
 			bool			skipToCharByIndex( UniChar, SInt32 &, bool );
 			
 			bool			skipToCharSameLineByIndex( UniChar, SInt32 & );
@@ -180,7 +137,7 @@ public:
 			
 			bool			rightTrimByIndex( SInt32, SInt32 );
 			
-	virtual	bool			skipDelimitedStringByIndex( SInt32 & ) = 0;
+			bool			skipDelimitedStringByIndex( SInt32 & );
 			
 			bool			skipDelimitedStringByIndex( SInt32 & /* index */, bool /* flAllowEOL */,
 							                            bool /* flAllowEscape */, bool /* flAllowEscapedEOL */ );
@@ -251,12 +208,23 @@ public:
 			
 
 #pragma mark -
+#pragma mark Tests
+			bool			matchChars( const char * );
+			bool			matchChars( BBLMTextIterator & txt, const char * pat, SInt32 & ct );
+			
+			bool			imatchCharsByIndex( const char *, SInt32 );
+			bool			imatchChars( const char * );
+			
+	virtual	bool			matchWord( const char * pat );
+	
+			bool			imatchWord( const char * pat );
+			
+
+#pragma mark -
 #pragma mark protected
 protected:
 
 			BBLMParamBlock &			m_params;
-	
-	const	BBLMCallbackBlock &			m_bblm_callbacks;
 	
 			BBLMTextIterator &			m_p;
 	
@@ -264,35 +232,39 @@ protected:
 	#pragma mark Character Tests
 	
 			void			addBreakChar( UniChar c );
-			
 			void			addBreakChars( CFStringRef );
-	
-			void			clearBreakChar( UniChar );
-			
-			void			clearBreakChars( CFStringRef );
-						
-	virtual	void			initBreaks() = 0;
+
+							//	subclasses should override this as needed to modify the default
+							//	word-break, scan-break, and identifier character sets.
+	virtual	void			initCharacterSets();
 			
 private:
 			void			addCharsToSet( CFStringRef, CFMutableCharacterSetRef );
 			void			addCharToSet( UniChar, CFMutableCharacterSetRef );
-			
-			void			removeCharsFromSet( CFStringRef, CFMutableCharacterSetRef );
-			void			removeCharFromSet( UniChar, CFMutableCharacterSetRef );
-	
 
 			void			initWhitespace();
 			void			initEOLChars();
+			void			initWordChars();
+			void			initIdentifierChars();
+			void			initDigitSeparatorChars(void);
+
+private:
+			void			_skipDigitRun(void);
+			void			_skipHexDigitRun(void);
+			void			_skipBinaryDigitRun(void);
 			
 #pragma mark -
 #pragma mark private
 private:
 			
 			CFMutableCharacterSetRef	m_inlineWhiteCharSet;
-			
 			CFMutableCharacterSetRef	m_breakCharSet;
-			
 			CFMutableCharacterSetRef	m_EOLCharSet;
+
+protected:
+			NSMutableCharacterSet		*m_wordCharSet;
+			NSMutableCharacterSet		*m_identifierCharSet;
+			NSMutableCharacterSet		*m_digitSeparatorCharSet;
 };
 
 #endif  // BBLMTextUtils_h
